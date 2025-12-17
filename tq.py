@@ -5,28 +5,65 @@ import plotly.express as px
 import os
 
 def get_dataframe_from_excel():
-    """读取Excel销售数据，返回处理后的DataFrame"""
-    # 替换为你的Excel文件实际路径（比如D:\data\supermarket_sales.xlsx）
-    excel_path = r'D:\streamlit_env\（商场销售数据）supermarket_sales.xlsx'  # r表示原始字符串，避免路径转义
+    """读取Excel销售数据，返回处理后的DataFrame（全容错版）"""
+    # 1. 配置Excel路径（确保和实际文件名完全一致）
+    excel_path = r'D:\streamlit_env\（商场销售数据）supermarket_sales.xlsx'
+    
+    # 检查文件是否存在
     if not os.path.exists(excel_path):
-        st.error(f"未找到Excel文件：{excel_path}")
-        st.stop()  # 停止程序运行
+        st.error(f"❌ 未找到Excel文件：{excel_path}")
+        st.error("请确认：1.文件路径正确 2.文件名（包括括号/中文）完全匹配 3.文件在指定目录下")
+        st.stop()
     
     try:
-        # 读取Excel数据（跳过首行标题，以订单号为索引）
-        df = pd.read_excel(
-            excel_path,
-            sheet_name='销售数据',
-            skiprows=1,
-            index_col='订单号',
-            engine='openpyxl'  # 指定引擎，避免Excel读取警告
-        )
+        # 2. 读取Excel（适配不同sheet名/列名，跳过标题行）
+        # 先尝试读取指定sheet，失败则读取第一个sheet
+        try:
+            df = pd.read_excel(
+                excel_path,
+                sheet_name='销售数据',  # 若sheet名不是这个，改成Excel里的实际sheet名（比如Sheet1）
+                skiprows=1,            # 跳过第一行标题（2022年前3个月销售数据）
+                engine='openpyxl'
+            )
+        except:
+            df = pd.read_excel(
+                excel_path,
+                sheet_name=0,         # 读取第一个sheet
+                skiprows=1,
+                engine='openpyxl'
+            )
         
-        # 提取交易小时数（新增列）
-        df['小时数'] = pd.to_datetime(df["时间"], format="%H:%M:%S").dt.hour
+        # 3. 去除列名首尾空格（解决列名带空格的坑）
+        df.columns = [col.strip() for col in df.columns]
+        
+        # 调试：打印列名（方便核对）
+        st.write("📌 Excel真实列名（跳过标题行后）：")
+        st.write(df.columns.tolist())
+        
+        # 4. 核心列检查（确保关键列存在）
+        required_cols = ["订单号", "城市", "顾客类型", "性别", "产品类型", "总价", "评分", "时间"]
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        if missing_cols:
+            st.error(f"❌ Excel缺少关键列：{missing_cols}")
+            st.stop()
+        
+        # 5. 处理订单号索引（避免索引错误）
+        df = df.set_index("订单号", drop=False)  # 保留订单号列，同时设为索引
+        
+        # 6. 提取交易小时数（适配%H:%M和%H:%M:%S两种时间格式）
+        df["小时数"] = pd.to_datetime(df["时间"], format="%H:%M:%S", errors="coerce").dt.hour
+        # 若上面解析失败，尝试%H:%M格式
+        if df["小时数"].isnull().all():
+            df["小时数"] = pd.to_datetime(df["时间"], format="%H:%M", errors="coerce").dt.hour
+        
+        # 7. 处理缺失值
+        df = df.dropna(subset=["总价", "评分", "小时数"])
+        
         return df
+    
     except Exception as e:
-        st.error(f"读取Excel失败：{str(e)}")
+        st.error(f"❌ 读取Excel失败：{str(e)}")
+        st.error("常见原因：1.sheet名错误 2.列名不匹配 3.跳过的标题行数不对 4.Excel文件损坏")
         st.stop()
 
 def add_sidebar_func(df):
@@ -61,10 +98,12 @@ def add_sidebar_func(df):
             key="gender_select"
         )
         
-        # 应用筛选条件
-        df_selection = df.query(
-            "城市 == @city & 顾客类型 ==@customer_type & 性别 == @gender"
-        )
+        # 应用筛选条件（容错版）
+        df_selection = df[
+            (df["城市"].isin(city)) &
+            (df["顾客类型"].isin(customer_type)) &
+            (df["性别"].isin(gender))
+        ]
         
         # 显示筛选后的数据量
         st.info(f"筛选后数据量：{len(df_selection)} 条")
@@ -83,16 +122,17 @@ def product_line_chart(df):
         y=sales_by_product_line.index,
         orientation="h",
         title="<b>按产品类型划分的销售额</b>",
-        color="总价",  # 增加颜色渐变
+        color="总价",
         color_continuous_scale=px.colors.sequential.Blues,
-        template="plotly_white"  # 简洁风格
+        template="plotly_white"
     )
     
     # 优化图表样式
     fig.update_layout(
         xaxis_title="销售额（RMB）",
         yaxis_title="产品类型",
-        height=400
+        height=400,
+        margin=dict(l=10, r=10, t=30, b=10)
     )
     return fig
 
@@ -116,7 +156,8 @@ def hour_chart(df):
     fig.update_layout(
         xaxis_title="交易小时（24小时制）",
         yaxis_title="销售额（RMB）",
-        height=400
+        height=400,
+        margin=dict(l=10, r=10, t=30, b=10)
     )
     return fig
 
