@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+import os  # 新增：用于检查文件是否存在
 
 # 设置中文字体
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Arial Unicode MS']
@@ -35,10 +36,20 @@ h3 {
 </style>
 """, unsafe_allow_html=True)
 
-# 1. 数据加载（适配时间格式+表头）
+# 1. 数据加载（适配Cloud环境：相对路径+文件存在性检查）
 def load_data():
-    file_path = r"C:\Users\712\Desktop\supermarket_sales.xlsx"
-    df = pd.read_excel(file_path, header=1)  # 第2行为列名
+    # 关键修改：使用Cloud项目根目录的相对路径（仅文件名）
+    file_name = "supermarket_sales.xlsx"
+    file_path = file_name  # 直接读取根目录下的文件
+    
+    # 检查文件是否存在（帮助排查问题）
+    st.write("当前目录下的文件：", os.listdir('.'))  # 部署后可删除此行
+    if file_name not in os.listdir('.'):
+        st.error(f"错误：未找到 {file_name} 文件！请确认文件已上传到项目根目录，且文件名完全一致（区分大小写）。")
+        st.stop()  # 终止程序，避免后续报错
+    
+    # 读取Excel（header=1保持不变，第2行为列名）
+    df = pd.read_excel(file_path, header=1)
     
     # 时间列处理（适配带秒格式）
     df['时间_小时'] = pd.to_datetime(df['时间'], format='%H:%M:%S').dt.hour
